@@ -10,12 +10,20 @@
  *   ][href=https://evil.com][style=position:fixed;width:150vw;height:200vh;top:0;left:0
  */
 
+console.log('=== app.js starting ===');
+console.log('Node version:', process.version);
+console.log('Working directory:', process.cwd());
+
 const express = require("express");
+console.log('✓ express loaded');
 const m = require("mithril/render/hyperscript");
+console.log('✓ mithril/render/hyperscript loaded');
 const render = require("mithril-node-render");
+console.log('✓ mithril-node-render loaded');
 
 // Notification router – provides POST /api/notifications/send
 const { router: notificationsRouter } = require("./notifications");
+console.log('✓ notifications router loaded');
 
 const app = express();
 app.use(express.json());
@@ -132,9 +140,11 @@ app.all("/vuln", async (req, res) => {
 
 // ── Start server ─────────────────────────────────────────────────────────────
 app.listen(9090, "0.0.0.0", () => {
-  console.log("Carrier app listening on http://0.0.0.0:9090");
+  console.log("=== Server successfully started on port 9090 ===");
+  console.log("  GET  /");
   console.log("  GET  /health");
   console.log("  POST /vuln  { input: '<socialId>', type: 'twitter' }");
   console.log("  GET  /vuln?input=<socialId>&type=twitter");
-  console.log("  POST /api/notifications/send  { to: '<email>', message: '<text>' }");
+  console.log("  POST /api/notifications/send  { to: '<email>', subject: '<subject>', body: '<html>' }");
+  console.log("  GET  /api/notifications");
 });
