@@ -3,8 +3,10 @@
  *
  * Express router providing the POST /api/notifications/send endpoint.
  *
- * Accepts a recipient email address and a plain-text message body, wraps the
- * body in a minimal HTML template, and dispatches the email via Nodemailer.
+ * Accepts a recipient email address, a subject line, and an HTML body,
+ * then dispatches the email via Nodemailer.
+ *
+ * Request body: { to: string, subject: string, body: string }
  *
  * Environment variables (all optional – sensible defaults are used for local
  * development / testing):
@@ -78,79 +80,47 @@ function getTransporter() {
   return _transporter;
 }
 
-// ── HTML body builder ────────────────────────────────────────────────────────
-/**
- * Wraps a plain-text message in a simple HTML email template.
- * New-lines in the message are converted to <br> tags.
- *
- * @param {string} message  Plain-text message body
- * @returns {string}        HTML string
- */
-function buildHtmlBody(message) {
-  // Escape HTML special characters to prevent injection in the body text.
-  const escaped = message
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/\n/g, "<br>\n");
-
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Notification</title>
-  <style>
-    body { font-family: Arial, sans-serif; background: #f4f4f4; margin: 0; padding: 0; }
-    .container { max-width: 600px; margin: 40px auto; background: #fff;
-                 border-radius: 6px; padding: 32px; box-shadow: 0 2px 6px rgba(0,0,0,.1); }
-    p { color: #333; line-height: 1.6; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <p>${escaped}</p>
-  </div>
-</body>
-</html>`;
-}
-
 // ── POST /api/notifications/send ─────────────────────────────────────────────
 /**
  * @route  POST /api/notifications/send
- * @body   { to: string, message: string }
+ * @body   { to: string, subject: string, body: string }
  *
  * Sends an HTML notification email to the specified recipient.
+ * The `body` field is used directly as the HTML email body.
  *
  * Success (200):
  *   { success: true, messageId: "<smtp-message-id>" }
  *
- * Validation error (400):
+ * Validation errors (400):
  *   { error: "Invalid email address" }
- *   { error: "Missing required field: message" }
+ *   { error: "Missing required field: subject" }
+ *   { error: "Missing required field: body" }
  *
  * Server error (500):
  *   { error: "Failed to send email: <reason>" }
  */
 router.post("/send", async (req, res) => {
-  const { to, message } = req.body || {};
+  const { to, subject, body } = req.body || {};
 
   // ── Input validation ───────────────────────────────────────────────────────
   if (!isValidEmail(to)) {
     return res.status(400).json({ error: "Invalid email address" });
   }
 
-  if (!message || typeof message !== "string" || message.trim() === "") {
-    return res.status(400).json({ error: "Missing required field: message" });
+  if (!subject || typeof subject !== "string" || subject.trim() === "") {
+    return res.status(400).json({ error: "Missing required field: subject" });
+  }
+
+  if (!body || typeof body !== "string" || body.trim() === "") {
+    return res.status(400).json({ error: "Missing required field: body" });
   }
 
   // ── Build and send the email ───────────────────────────────────────────────
   const mailOptions = {
     from: process.env.MAIL_FROM || "noreply@example.com",
     to: to.trim(),
-    subject: "Notification",
-    html: buildHtmlBody(message.trim()),
+    subject: subject.trim(),
+    html: body,
   };
 
   try {
@@ -164,4 +134,4 @@ router.post("/send", async (req, res) => {
 });
 
 // ── Exports ──────────────────────────────────────────────────────────────────
-module.exports = { router, isValidEmail, buildHtmlBody, setTransporter, getTransporter };
+module.exports = { router, isValidEmail, setTransporter, getTransporter };

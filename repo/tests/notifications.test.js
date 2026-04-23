@@ -5,6 +5,8 @@
  * Uses Node's built-in test runner (node --test) – no extra test framework
  * needed.  Nodemailer is replaced with a lightweight stub so no real SMTP
  * server is required.
+ *
+ * Request shape: { to: string, subject: string, body: string }
  */
 
 "use strict";
@@ -16,9 +18,7 @@ const assert = require("node:assert/strict");
 const {
   router,
   isValidEmail,
-  buildHtmlBody,
   setTransporter,
-  getTransporter,
 } = require("../notifications");
 
 // ── Minimal Express app wired up for testing ─────────────────────────────────
@@ -83,6 +83,13 @@ function makeStubTransporter({ shouldFail = false } = {}) {
   };
 }
 
+// ── Shared valid payload ──────────────────────────────────────────────────────
+const VALID_PAYLOAD = {
+  to: "recipient@example.com",
+  subject: "Contact Updated",
+  body: "<h1>Hello</h1><p>Your contact was updated successfully.</p>",
+};
+
 // ── isValidEmail unit tests ───────────────────────────────────────────────────
 describe("isValidEmail()", () => {
   test("accepts a standard email address", () => {
@@ -126,40 +133,6 @@ describe("isValidEmail()", () => {
   });
 });
 
-// ── buildHtmlBody unit tests ──────────────────────────────────────────────────
-describe("buildHtmlBody()", () => {
-  test("returns a string containing the message text", () => {
-    const html = buildHtmlBody("Hello, world!");
-    assert.ok(html.includes("Hello, world!"));
-  });
-
-  test("wraps output in DOCTYPE html", () => {
-    const html = buildHtmlBody("test");
-    assert.ok(html.startsWith("<!DOCTYPE html>"));
-  });
-
-  test("converts newlines to <br> tags", () => {
-    const html = buildHtmlBody("line1\nline2");
-    assert.ok(html.includes("<br>"));
-  });
-
-  test("escapes < and > characters", () => {
-    const html = buildHtmlBody("<script>alert(1)</script>");
-    assert.ok(!html.includes("<script>"));
-    assert.ok(html.includes("&lt;script&gt;"));
-  });
-
-  test("escapes & characters", () => {
-    const html = buildHtmlBody("A & B");
-    assert.ok(html.includes("A &amp; B"));
-  });
-
-  test("escapes double-quote characters", () => {
-    const html = buildHtmlBody('say "hello"');
-    assert.ok(html.includes("&quot;"));
-  });
-});
-
 // ── POST /api/notifications/send integration tests ───────────────────────────
 describe("POST /api/notifications/send", () => {
   let server;
@@ -179,10 +152,11 @@ describe("POST /api/notifications/send", () => {
 
   // ── Happy path ──────────────────────────────────────────────────────────────
   test("returns 200 with success:true and a messageId on valid input", async () => {
-    const { status, body } = await post(server, "/api/notifications/send", {
-      to: "recipient@example.com",
-      message: "Hello from the test suite!",
-    });
+    const { status, body } = await post(
+      server,
+      "/api/notifications/send",
+      VALID_PAYLOAD
+    );
 
     assert.equal(status, 200);
     assert.equal(body.success, true);
@@ -192,56 +166,57 @@ describe("POST /api/notifications/send", () => {
 
   test("sends to the correct recipient address", async () => {
     await post(server, "/api/notifications/send", {
+      ...VALID_PAYLOAD,
       to: "alice@example.com",
-      message: "Test message",
     });
 
     assert.equal(lastSentMail.to, "alice@example.com");
   });
 
-  test("email subject is a non-empty string", async () => {
+  test("uses the provided subject line", async () => {
     await post(server, "/api/notifications/send", {
-      to: "bob@example.com",
-      message: "Check subject",
+      ...VALID_PAYLOAD,
+      subject: "Contact Updated",
     });
+
+    assert.equal(lastSentMail.subject, "Contact Updated");
+  });
+
+  test("email subject is a non-empty string", async () => {
+    await post(server, "/api/notifications/send", VALID_PAYLOAD);
 
     assert.equal(typeof lastSentMail.subject, "string");
     assert.ok(lastSentMail.subject.trim().length > 0);
   });
 
-  test("email body is HTML (contains <html> tag)", async () => {
+  test("email html field contains the provided body", async () => {
+    const htmlBody = "<h1>Hello</h1><p>Your contact was updated successfully.</p>";
     await post(server, "/api/notifications/send", {
-      to: "carol@example.com",
-      message: "HTML check",
+      ...VALID_PAYLOAD,
+      body: htmlBody,
     });
 
-    assert.ok(lastSentMail.html.includes("<html"));
-  });
-
-  test("email body contains the original message text", async () => {
-    const message = "Unique message payload 12345";
-    await post(server, "/api/notifications/send", {
-      to: "dave@example.com",
-      message,
-    });
-
-    assert.ok(lastSentMail.html.includes(message));
+    assert.ok(lastSentMail.html.includes(htmlBody));
   });
 
   test("returns the messageId from the transporter response", async () => {
-    const { body } = await post(server, "/api/notifications/send", {
-      to: "eve@example.com",
-      message: "messageId check",
-    });
+    const { body } = await post(
+      server,
+      "/api/notifications/send",
+      VALID_PAYLOAD
+    );
 
     assert.equal(body.messageId, "<test-message-id@stub>");
   });
 
   // ── Validation errors (400) ─────────────────────────────────────────────────
   test("returns 400 when `to` is missing", async () => {
-    const { status, body } = await post(server, "/api/notifications/send", {
-      message: "No recipient",
-    });
+    const { to: _omit, ...payload } = VALID_PAYLOAD;
+    const { status, body } = await post(
+      server,
+      "/api/notifications/send",
+      payload
+    );
 
     assert.equal(status, 400);
     assert.ok(typeof body.error === "string");
@@ -249,8 +224,8 @@ describe("POST /api/notifications/send", () => {
 
   test("returns 400 when `to` is not a valid email", async () => {
     const { status, body } = await post(server, "/api/notifications/send", {
+      ...VALID_PAYLOAD,
       to: "not-an-email",
-      message: "Bad address",
     });
 
     assert.equal(status, 400);
@@ -259,35 +234,68 @@ describe("POST /api/notifications/send", () => {
 
   test("returns 400 when `to` is an empty string", async () => {
     const { status } = await post(server, "/api/notifications/send", {
+      ...VALID_PAYLOAD,
       to: "",
-      message: "Empty address",
     });
 
     assert.equal(status, 400);
   });
 
-  test("returns 400 when `message` is missing", async () => {
-    const { status, body } = await post(server, "/api/notifications/send", {
-      to: "frank@example.com",
-    });
+  test("returns 400 when `subject` is missing", async () => {
+    const { subject: _omit, ...payload } = VALID_PAYLOAD;
+    const { status, body } = await post(
+      server,
+      "/api/notifications/send",
+      payload
+    );
 
     assert.equal(status, 400);
     assert.ok(typeof body.error === "string");
   });
 
-  test("returns 400 when `message` is an empty string", async () => {
+  test("returns 400 when `subject` is an empty string", async () => {
     const { status } = await post(server, "/api/notifications/send", {
-      to: "grace@example.com",
-      message: "",
+      ...VALID_PAYLOAD,
+      subject: "",
     });
 
     assert.equal(status, 400);
   });
 
-  test("returns 400 when `message` is whitespace only", async () => {
+  test("returns 400 when `subject` is whitespace only", async () => {
     const { status } = await post(server, "/api/notifications/send", {
-      to: "henry@example.com",
-      message: "   ",
+      ...VALID_PAYLOAD,
+      subject: "   ",
+    });
+
+    assert.equal(status, 400);
+  });
+
+  test("returns 400 when `body` is missing", async () => {
+    const { body: _omit, ...payload } = VALID_PAYLOAD;
+    const { status, body } = await post(
+      server,
+      "/api/notifications/send",
+      payload
+    );
+
+    assert.equal(status, 400);
+    assert.ok(typeof body.error === "string");
+  });
+
+  test("returns 400 when `body` is an empty string", async () => {
+    const { status } = await post(server, "/api/notifications/send", {
+      ...VALID_PAYLOAD,
+      body: "",
+    });
+
+    assert.equal(status, 400);
+  });
+
+  test("returns 400 when `body` is whitespace only", async () => {
+    const { status } = await post(server, "/api/notifications/send", {
+      ...VALID_PAYLOAD,
+      body: "   ",
     });
 
     assert.equal(status, 400);
@@ -297,10 +305,11 @@ describe("POST /api/notifications/send", () => {
   test("returns 500 when the transporter throws", async () => {
     setTransporter(makeStubTransporter({ shouldFail: true }));
 
-    const { status, body } = await post(server, "/api/notifications/send", {
-      to: "ivan@example.com",
-      message: "This will fail",
-    });
+    const { status, body } = await post(
+      server,
+      "/api/notifications/send",
+      VALID_PAYLOAD
+    );
 
     assert.equal(status, 500);
     assert.match(body.error, /failed to send email/i);
