@@ -30,7 +30,6 @@
 "use strict";
 
 const express = require("express");
-const nodemailer = require("nodemailer");
 
 const router = express.Router();
 
@@ -53,6 +52,9 @@ function isValidEmail(address) {
  * When SMTP_HOST is not set (e.g. in CI / test environments with no real
  * SMTP server) a lightweight stub is returned that always resolves
  * successfully with a generated messageId.
+ *
+ * nodemailer is required lazily so the server starts cleanly even if the
+ * package has not been installed (no-SMTP path never touches it).
  */
 function createTransporter() {
   if (!process.env.SMTP_HOST) {
@@ -66,6 +68,9 @@ function createTransporter() {
       },
     };
   }
+
+  // Only require nodemailer when a real SMTP host is configured.
+  const nodemailer = require("nodemailer");
 
   const auth =
     process.env.SMTP_USER && process.env.SMTP_PASS
