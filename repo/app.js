@@ -18,8 +18,14 @@ const render = require("mithril-node-render");
 // parseUrl is the utility added in the fix to validate URLs before interpolation
 const tutanotaUtils = require("@tutao/tutanota-utils");
 
+// Notification router – provides POST /api/notifications/send
+const { router: notificationsRouter } = require("./notifications");
+
 const app = express();
 app.use(express.json());
+
+// ── Notifications API ─────────────────────────────────────────────────────────
+app.use("/api/notifications", notificationsRouter);
 
 // ── Replicate the OLD (vulnerable) getSocialUrl logic from ContactUtils.ts ──
 // Pre-patch: directly concatenates socialId into a URL string with no validation.
@@ -122,4 +128,5 @@ app.listen(9090, "0.0.0.0", () => {
   console.log("  GET  /health");
   console.log("  POST /vuln  { input: '<socialId>', type: 'twitter' }");
   console.log("  GET  /vuln?input=<socialId>&type=twitter");
+  console.log("  POST /api/notifications/send  { to: '<email>', message: '<text>' }");
 });

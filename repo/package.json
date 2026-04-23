@@ -3,10 +3,14 @@
   "version": "1.0.0",
   "description": "Carrier app for GHSA-24v3-254g-jv85 - Mithril hyperscript selector injection",
   "main": "app.js",
+  "scripts": {
+    "test": "node --test tests/notifications.test.js"
+  },
   "dependencies": {
     "express": "^4.18.0",
     "@tutao/tutanota-utils": "314.251111.0",
     "mithril": "^2.2.2",
-    "mithril-node-render": "^2.1.0"
+    "mithril-node-render": "^2.1.0",
+    "nodemailer": "^6.9.0"
   }
 }
