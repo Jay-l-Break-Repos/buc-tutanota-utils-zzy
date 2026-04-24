@@ -14,12 +14,14 @@ const express = require("express");
 const m = require("mithril/render/hyperscript");
 const render = require("mithril-node-render");
 
-// Load the vulnerable package (pinned at 314.251111.0)
-// parseUrl is the utility added in the fix to validate URLs before interpolation
-const tutanotaUtils = require("@tutao/tutanota-utils");
+// Notification router – provides POST /api/notifications/send
+const { router: notificationsRouter } = require("./notifications");
 
 const app = express();
 app.use(express.json());
+
+// ── Notifications API ─────────────────────────────────────────────────────────
+app.use("/api/notifications", notificationsRouter);
 
 // ── Replicate the OLD (vulnerable) getSocialUrl logic from ContactUtils.ts ──
 // Pre-patch: directly concatenates socialId into a URL string with no validation.
@@ -48,6 +50,11 @@ function getSocialUrl_vulnerable(socialId, type) {
 
 // ── Health endpoint ──────────────────────────────────────────────────────────
 app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
+});
+
+// ── Root endpoint ─────────────────────────────────────────────────────────────
+app.get("/", (req, res) => {
   res.json({ status: "ok" });
 });
 
@@ -93,7 +100,14 @@ app.all("/vuln", async (req, res) => {
 
     // Step 5: Also show what parseUrl (from @tutao/tutanota-utils) returns
     // In the patched version, parseUrl(socialId) != null gates the URL usage.
-    const parsedUrl = tutanotaUtils.parseUrl ? tutanotaUtils.parseUrl(socialId) : "(parseUrl not exported)";
+    // Dynamic import is required because the package is an ES Module.
+    let parsedUrl;
+    try {
+      const tutanotaUtils = await import("@tutao/tutanota-utils");
+      parsedUrl = tutanotaUtils.parseUrl ? tutanotaUtils.parseUrl(socialId) : "(parseUrl not exported)";
+    } catch (e) {
+      parsedUrl = `(import error: ${e.message})`;
+    }
 
     res.json({
       // The raw input social ID
@@ -119,7 +133,9 @@ app.all("/vuln", async (req, res) => {
 // ── Start server ─────────────────────────────────────────────────────────────
 app.listen(9090, "0.0.0.0", () => {
   console.log("Carrier app listening on http://0.0.0.0:9090");
+  console.log("  GET  /");
   console.log("  GET  /health");
   console.log("  POST /vuln  { input: '<socialId>', type: 'twitter' }");
   console.log("  GET  /vuln?input=<socialId>&type=twitter");
+  console.log("  POST /api/notifications/send  { to: '<email>', body: '<html>' }");
 });
