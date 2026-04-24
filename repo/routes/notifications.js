@@ -5,12 +5,15 @@
  *
  *   POST /api/notifications/send
  *     Body: { recipient: string, body: string }
+ *     - Rate-limited to 10 requests per minute per client IP (sliding window).
+ *       Exceeding the limit returns 429 with Retry-After and a helpful message.
  *     - Validates the recipient email address (RFC-5322 compliant regex).
  *     - Sends an HTML email via nodemailer (SMTP transport configured through
  *       environment variables).
  *     - Persists a record to the notification history store.
  *     - Returns 200 { messageId, message } on success.
  *     - Returns 400 { error } when the email address is invalid.
+ *     - Returns 429 { error, retryAfterSeconds } when rate limit is exceeded.
  *     - Returns 500 { error } on transport failure.
  *
  *   GET /api/notifications
@@ -31,8 +34,13 @@
 const express = require("express");
 const nodemailer = require("nodemailer");
 const notificationModel = require("../models/notification");
+const { createRateLimiter } = require("../middleware/rateLimiter");
 
 const router = express.Router();
+
+// ── Rate limiter ─────────────────────────────────────────────────────────────
+// Allow at most 10 POST /send requests per minute per client IP.
+const sendRateLimiter = createRateLimiter({ limit: 10, windowMs: 60_000 });
 
 // ── Email validation ─────────────────────────────────────────────────────────
 // RFC-5322-inspired regex that covers the vast majority of valid addresses
@@ -87,9 +95,10 @@ function createTransport() {
  *
  * Error responses:
  *   400 — { "error": "Invalid email address." }
+ *   429 — { "error": "Too many requests...", "retryAfterSeconds": N }
  *   500 — { "error": "<transport error message>" }
  */
-router.post("/send", async (req, res) => {
+router.post("/send", sendRateLimiter, async (req, res) => {
   const { recipient, body } = req.body || {};
 
   // ── 1. Validate recipient ──────────────────────────────────────────────────
