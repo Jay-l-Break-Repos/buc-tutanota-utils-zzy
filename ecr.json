@@ -1,0 +1,7 @@
+{
+  "ecr_repo": "vulndock/candidate",
+  "ecr_tag": "ghsa-24v3-254g-jv85",
+  "local_image": "vulndock-candidate-ghsa-24v3-254g-jv85:latest",
+  "aux_images": {},
+  "docker_type": "carrier"
+}
